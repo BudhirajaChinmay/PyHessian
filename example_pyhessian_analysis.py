@@ -78,14 +78,21 @@ for arg in vars(args):
     print(arg, getattr(args, arg))
 
 # get dataset
-train_loader, test_loader = getData(name='cifar10_without_dataaugmentation',
-                                    train_bs=args.mini_hessian_batch_size,
-                                    test_bs=1)
+transform = torchvision.transforms.Compose([
+                    torchvision.transforms.ToTensor(),
+                    torchvision.transforms.Normalize(mean = (0.5), std = (0.5))
+                    ])
+train_dataset = datasets.MNIST(root = './', train = True, transform = transform, download = True)
+test_dataset = datasets.MNIST(root = './', train = False, transform = transform, download = True)
+
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size = 1000, shuffle = False)
+
 ##############
 # Get the hessian data
 ##############
 assert (args.hessian_batch_size % args.mini_hessian_batch_size == 0)
-assert (50000 % args.hessian_batch_size == 0)
+assert (60000 % args.hessian_batch_size == 0)
 batch_num = args.hessian_batch_size // args.mini_hessian_batch_size
 
 if batch_num == 1:
