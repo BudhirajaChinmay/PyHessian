@@ -38,6 +38,74 @@ from density_plot import get_esd_plot
 from models.resnet import resnet
 from pyhessian import hessian
 
+import pickle
+
+# Model
+class MLP(nn.Module):
+
+    def __init__(self):
+        super(MLP, self).__init__()
+        
+        self.L1 = nn.Linear(784, 512)
+        self.L2 = nn.Linear(512, 512)
+        self.L3 = nn.Linear(512, 10)
+        self.relu = nn.PReLU()
+        self.tanh = nn.Tanh()
+        self.Softmax = nn.Softmax(dim = 1)
+
+        nn.init.orthogonal_(self.L1.weight)
+        nn.init.orthogonal_(self.L2.weight)
+        nn.init.orthogonal_(self.L3.weight)
+
+    def forward(self, x):
+        x = self.L1(x)
+        x = self.relu(x)
+
+        x = self.L2(x)
+        x = self.relu(x)
+
+        logits = self.L3(x)
+        probs = self.Softmax(logits)
+
+        return probs
+
+def GetHessianEig(path, hessian_dataloader):
+    
+    criterion = nn.CrossEntropyLoss()  # label loss
+    
+    # get model
+    model = MLP()
+
+    if args.cuda:
+        model = model.cuda()
+    model = torch.nn.DataParallel(model)
+    check_point = torch.load(path)
+    model.load_state_dict(check_point.state_dict)
+    
+    ######################################################
+    # Begin the computation
+    ######################################################
+
+    # turn model to eval mode
+    model.eval()
+    if batch_num == 1:
+        hessian_comp = hessian(model,
+                               criterion,
+                               data=hessian_dataloader,
+                               cuda=args.cuda)
+    else:
+        hessian_comp = hessian(model,
+                               criterion,
+                               dataloader=hessian_dataloader,
+                               cuda=args.cuda)
+
+    print(
+        '********** finish data londing and begin Hessian computation **********')
+
+    top_eigenvalues, _ = hessian_comp.eigenvalues(top_n=3)
+
+    return top_eigenvalues
+
 # Settings
 parser = argparse.ArgumentParser(description='PyTorch Example')
 parser.add_argument(
@@ -106,49 +174,19 @@ else:
         if i == batch_num - 1:
             break
 
-# get model
-model = resnet(num_classes=10,
-               depth=20,
-               residual_not=args.residual,
-               batch_norm_not=args.batch_norm)
-if args.cuda:
-    model = model.cuda()
-model = torch.nn.DataParallel(model)
+# Saved Models Path
+model_path = './LinearnetworkCheckpoints/'
+num_epochs = 15
 
-criterion = nn.CrossEntropyLoss()  # label loss
-
-###################
-# Get model checkpoint, get saving folder
-###################
-if args.resume == '':
-    raise Exception("please choose the trained model")
-model.load_state_dict(torch.load(args.resume))
-
-######################################################
-# Begin the computation
-######################################################
-
-# turn model to eval mode
-model.eval()
-if batch_num == 1:
-    hessian_comp = hessian(model,
-                           criterion,
-                           data=hessian_dataloader,
-                           cuda=args.cuda)
-else:
-    hessian_comp = hessian(model,
-                           criterion,
-                           dataloader=hessian_dataloader,
-                           cuda=args.cuda)
-
-print(
-    '********** finish data londing and begin Hessian computation **********')
-
-top_eigenvalues, _ = hessian_comp.eigenvalues()
-trace = hessian_comp.trace()
-density_eigen, density_weight = hessian_comp.density()
-
-print('\n***Top Eigenvalues: ', top_eigenvalues)
-print('\n***Trace: ', np.mean(trace))
-
-get_esd_plot(density_eigen, density_weight)
+Eig = {}
+for i in range(num_epochs):
+    curr_checkpoint_path = model_path+'model_'+str(i+1)+'.pth.tar'
+    Eigenvalues = []
+    for j in range(batch_num):
+        Eigenvalues.append(GetHessianEig(curr_checkpoint_path, hessian_dataloader[j]))
+    Eig[str(i+1)] = Eigenvalues
+        
+Eigenvalues = np.array(Eigenvalues)
+EigFile = open('./EigenValues', 'wb') 
+pickle.dump(Eig, EigFile) 
+geeky_file.close()
